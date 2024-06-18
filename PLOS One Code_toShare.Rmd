@@ -1,0 +1,469 @@
+---
+title: "Reproducible code for PLOS ONE Manuscript"
+author: "Tesla DuBois"
+date: "06/20/2024"
+output: html_document
+---
+
+This is the code used to produce adherence scores and graphics in the DuBois et. al. PLOS ONE manuscript, "Data-driven insights into neighborhood adherence to cancer prevention guidelines in Philadelphia" Please note that WalkScore is not able to be redistributed by the authors of the associated manuscript and is therefore missing from the provided dataset. Interested parties may request it at <https://www.walkscore.com/professional/research.php>. Without that variable, findings will vary from what is reported in the manuscript.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(readxl)
+library(ggpubr)
+library(flextable)
+library(sf)
+library(ggspatial)
+
+```
+
+# Generate Adherence Scores
+
+Call in and view the data dictionary and neighborhood estimates.
+
+```{r call in neighborhood estimates}
+
+data_dictionary <- read.csv("data_dictionary.csv")
+# View(data_dictionary)
+
+data <- read.csv("data_availability_dataset.csv")
+# View(data)
+
+```
+
+Save out recommendation data, pivot data longer for ease of use, attach recommendation number and reverse codes from data dictionary.
+
+```{r save out measures}
+measures <- data%>%
+  select(-c(cancer_mortality_comparison, cancer_mortality_rate))%>%# take out mortality 
+  pivot_longer(
+    cols = !c(nbhd_id, nbhd_name), 
+    names_to = "measure", 
+    values_to = "estimate")%>% # make it longer
+  left_join(data_dictionary%>%
+  select(measure, rec_num, reverse)) # attach what recommendation number & reverse codes
+```
+
+Save out the quartile ranges to go into better and worse columns in Table 1.
+
+```{r save out quantile ranges}
+
+table1_quantiles <- measures%>%
+  filter(!nbhd_name == "Overall Philadelphia")%>% # filter out the city overall 
+  group_by(measure)%>%
+  summarize(Min = round(fivenum(estimate)[1], 1),
+            Q1 = round(fivenum(estimate)[2], 1),
+            Mean = round(fivenum(estimate)[3], 1),
+            Q4 = round(fivenum(estimate)[4], 1),
+            Max = round(fivenum(estimate)[5], 1),
+            mean = round(mean(estimate, na.rm = T), 1),
+            SD = round(sd(estimate, na.rm = T), 2))
+
+```
+
+## Step 1: Assign better/worse/no different to each neighborhood on each measure
+
+```{r assign better/worse for measures}
+step1 <- measures%>%    
+  filter(!nbhd_name == "Overall Philadelphia")%>% # filter out the city overall 
+  group_by(measure)%>% # Assign better/worse/no different within each measure by quartile 
+  mutate(above_below = case_when(estimate > fivenum(estimate)[4]~1,
+                               estimate < fivenum(estimate)[2]~-1,
+                               TRUE~0),
+         better_worse = above_below*reverse)
+
+```
+
+## Step 2: Calculate recommendation level z-scores of sums of better/worse/no different values
+
+Each recommendation is measured using one to four variables (Manuscript Table 1 & Table 2), each with associated value of -1, 0, or 1, produced in Step 1 to indicate that the neighborhood is worse, no different, or better than the city overall on that measure. For recommendations consisting of more than one measure, we summed the associated variable values within each recommendation. We then calculated z-scores for each recommendation.
+
+```{r calculate recommendation zscores}
+# Get the sum of all measures within each recommendation for each neighborhood 
+step2_sums <- step1 |>
+  group_by(nbhd_id, nbhd_name, rec_num)%>% 
+  mutate(rec_sum = sum(better_worse, na.rm = T))%>%
+  select(nbhd_id, nbhd_name, rec_num, rec_sum)%>%
+  distinct()
+
+# Create a zscore of sums within each recommendation, which will be added together for total adherence to account for the extremes within each recommendation. 
+step2_mean_sd <- step2_sums %>%
+  group_by(rec_num)%>%
+  summarize(recomm_mean = mean(rec_sum, na.rm = T),
+            recomm_stdev = sd(rec_sum, na.rm = T))
+
+# Calculate z-scores 
+step2_zscores <- left_join(step2_sums, step2_mean_sd)%>%
+  mutate(recomm_Zscore = (rec_sum - recomm_mean)/recomm_stdev)
+
+# Save out better/worse designations within each recommendation to look at it later in high mortality neighborhoods (Tables 3 and 4) 
+step2_rec_betterworse <- step2_zscores%>%
+  group_by(rec_num)%>%
+  mutate(better_worse_rec = case_when(rec_sum > fivenum(rec_sum)[4]~1,
+                               rec_sum < fivenum(rec_sum)[2]~-1,
+                               TRUE~0))
+
+# clean up
+rm(step2_mean_sd, step2_sums)
+```
+
+## Step 3: Sum recommendation z-scores and designate better/worse/no different adherence to two separate indices
+
+Step 3: Separate recommendations into two different indices: ACS Physical Activity, Nutrition and Smoking Guidelines (ACS for short) and Preventive Service Guidelines (PS for short). For each, sum the z-scores of the included recommendations within each neighborhood. Then take a new z-score of that sum. This is the final adherence score. Quartile breaks determine better/worse/no different overall adherence relative to the city overall.
+
+```{r Preventive Service Guideline Index}
+step3_PS_Zsum <- step2_zscores %>%
+  filter(rec_num %in% c("x.1", "x.2","x.3"))%>%
+  group_by(nbhd_id)%>%
+  summarize(PS_zSum = sum(recomm_Zscore, na.rm = T))
+
+step3_PS_meansd <- step3_PS_Zsum %>%
+  summarize(PS_mean = mean(PS_zSum, na.rm = T),
+            PS_stdev = sd(PS_zSum, na.rm = T))
+
+# Calculate z-scores 
+step3_PS_zscore <- step3_PS_Zsum %>%
+  mutate(PS_Zscore = (PS_zSum - step3_PS_meansd$PS_mean)/step3_PS_meansd$PS_stdev)%>%
+  mutate(Adherence_PS = case_when(PS_Zscore > fivenum(PS_Zscore)[4]~"Better",
+                               PS_Zscore < fivenum(PS_Zscore)[2]~"Worse",
+                               TRUE~"No Diff"))%>%
+  select(nbhd_id, PS_Zscore, Adherence_PS)
+
+rm(step3_PS_Zsum, step3_PS_meansd)
+
+```
+
+```{r ACS Physical Activity, Nutrition, and Smoking Guidelines Index}
+
+step3_ACS_sums <- step2_zscores %>%
+  filter(rec_num %in% c("1", "2","3","4", "5", "6", "7"))%>% 
+  group_by(nbhd_id)%>%
+  summarize(ACS_zSum = sum(recomm_Zscore, na.rm = T))
+
+step3_ACS_meansd <- step3_ACS_sums %>%
+  summarize(ACS_mean = mean(ACS_zSum, na.rm = T),
+            ACS_stdev = sd(ACS_zSum, na.rm = T))
+
+# Calculate z-scores 
+step3_ACS_zscore <- step3_ACS_sums %>%
+  mutate(ACS_Zscore = (ACS_zSum - step3_ACS_meansd$ACS_mean)/step3_ACS_meansd$ACS_stdev)%>%
+  mutate(Adherence_ACS = case_when(ACS_Zscore > fivenum(ACS_Zscore)[4]~"Better",
+                               ACS_Zscore < fivenum(ACS_Zscore)[2]~"Worse",
+                               TRUE~"No Diff"))%>%
+  select(nbhd_id, ACS_Zscore, Adherence_ACS)
+
+rm(step3_ACS_sums, step3_ACS_meansd)
+
+```
+
+# Test for associations with mortality
+
+The following code was used to test for associations with overall cancer mortality. While these indices were not generated to support public health interventions rather than predict mortality, we expect to see that it is related to mortality.
+
+NOTE: Due to restrictions on data distributions, the available data provided with this code does not include the WalkScore data that was included in calculation of recommendation 7 in the manuscript. Therefore, ACS_Zscore, PS_Zscore, Adherence_ACS, Adherence_PS, may very from results reported in the manuscript, as well as the associations with mortality that follow.
+
+```{r test for associations with cancer mortality}
+
+# get measures and two indices and mortality all into a single data frame 
+final <- data %>%
+  left_join(step3_ACS_zscore)%>%
+  left_join(step3_PS_zscore)%>%
+  filter(!nbhd_name == "Overall Philadelphia") # Take out overall Philly 
+
+# Do we have a linear relationship between cancer mortality and each of our indices? 
+plot(final$cancer_mortality_rate, final$ACS_Zscore) #yes
+plot(final$cancer_mortality_rate, final$PS_Zscore) #yes 
+
+# Are they significantly correlated? 
+cor.test(final$ACS_Zscore, final$cancer_mortality_rate, method = c("spearman")) # yes
+cor.test(final$PS_Zscore, final$cancer_mortality_rate, method = c("spearman")) # yes
+
+#Are they associated? 
+ACS_mod <- lm(cancer_mortality_rate ~ ACS_Zscore, data = final) 
+summary(ACS_mod) # yes
+
+PS_mod <- lm(cancer_mortality_rate ~ PS_Zscore, data = final)
+summary(PS_mod)# yes
+
+```
+
+# Visualize spatial distribution of adherence indices
+
+## Step 1: Map out adherence by neighborhood
+
+```{r map adherence}
+
+# call in the neighborhood and philly shaprefiles 
+nbhds <- read_sf("shapefiles/nbhds.shp")%>%
+  left_join(final) # attach final data 
+
+philly <- read_sf("shapefiles/Philly.shp")
+
+# Generate ACS guidelines adherence map 
+ACS_map <- ggplot() +
+  geom_sf(philly, 
+          mapping = aes(), 
+          color = "black", 
+          size = 1, 
+          fill = "#E8E8E8")+
+  geom_sf(nbhds, 
+          mapping = aes(fill = Adherence_ACS), 
+          colour = "Black")+
+  labs(fill = "Value") +
+  scale_fill_manual(breaks = c("No Diff", "Better", "Worse"),
+                    values=c("white", "#36A4AB", "#3B2D5B"),
+                    labels = c("No different", "Better", "Worse"))+
+  annotation_scale(plot_unit = "ft", 
+                   unit_category = "imperial", 
+                   location = "br", 
+                   style = "ticks")+
+  theme_void() +
+  labs(title = paste0("a. ACS Physical Activity, \n Nutrition, & Smoking"), 
+       fill = "Compared to City", 
+       subtitle = "*WalkScore is missing from Rec. 7, \n resulting in variation from manuscript")+
+  theme(plot.title = element_text(hjust = 0.0, vjust = -8), 
+        plot.subtitle = element_text(hjust = 0.2, vjust = -8.5),
+        text = element_text(size = 12))
+
+# Generate preventive services map 
+PS_map <- ggplot() +
+  geom_sf(philly, 
+          mapping = aes(), 
+          color = "black", 
+          size = 1, 
+          fill = "#E8E8E8")+
+  geom_sf(nbhds, 
+          mapping = aes(fill = Adherence_PS), 
+          colour = "Black")+
+  labs(fill = "Value") +
+  scale_fill_manual(breaks = c("No Diff", "Better", "Worse"),
+                    values=c("white", "#36A4AB", "#3B2D5B"),
+                    labels = c("No different", "Better", "Worse"))+
+  annotation_north_arrow(which_north = "grid", 
+                         height = unit(0.5, "cm"), 
+                         width = unit(0.5, "cm"), 
+                         pad_x = unit(0.25, "cm"),
+                         pad_y = unit(0.25, "cm"), 
+                         style = north_arrow_orienteering(fill = c("white", "black"), 
+                                                          text_size = 6), 
+                         location = "bl") +
+  theme_void() +
+  labs(title = paste0("b. Preventive Services \n                       "), 
+       fill = "Compared to City") +
+  theme(plot.title = element_text(hjust = 0.2, vjust = -8), 
+        plot.subtitle = element_text(hjust = 0.2, vjust = -8.5), 
+        text = element_text(size = 12))
+
+# Display them side by side 
+AdherenceMaps <- ggarrange(plotlist = list(ACS_map, PS_map), 
+                     common.legend = TRUE, 
+                     legend = "bottom", 
+                     ncol = 2, nrow = 1, 
+                     widths = c(8,8), heights = (12)) 
+
+AdherenceMaps
+
+```
+
+## Step 2: Observe overlap between worse adherence and worse mortality
+
+```{r identify overlapping neighborhoods}
+
+# For ACS Guidelines 
+worst_worst_ACS <- nbhds |>
+  filter(cancer_mortality_comparison == "Worse" & Adherence_ACS == "Worse")|>
+   mutate(initial = ifelse(nbhd_name == "Strawberry Mansion", "SM", substr(nbhd_name,1,1)))
+
+# For Preventive Services Guidelines 
+worst_worst_PS <- nbhds |>
+  filter(cancer_mortality_comparison == "Worse" & Adherence_PS == "Worse")|>
+   mutate(initial = ifelse(nbhd_name == "Strawberry Mansion", "SM", substr(nbhd_name,1,1)))
+
+# Map ACS
+worst_worst_ACS_map <- ggplot() +
+  geom_sf(philly, mapping = aes(), 
+          color = "black", 
+          size = 1, 
+          fill = "#E8E8E8")+
+  geom_sf(nbhds, 
+          mapping = aes(), 
+          colour = "Black", 
+          fill = "lightgray")+
+  geom_sf(worst_worst_ACS, 
+          mapping = aes(), 
+          colour = "Black", 
+          fill = "#3B2D5B")+
+  geom_sf_text(worst_worst_ACS,
+               mapping = aes(label = initial), 
+               size=3.5, color = "white",
+               fun.geometry = sf::st_centroid) +
+  annotation_scale(plot_unit = "ft", 
+                   unit_category = "imperial", 
+                   location = "br", 
+                   style = "ticks")+
+  theme_void() +
+  labs(title = paste0("a. High Cancer Mortality & Low Physical \n Activity, Nutrition, & Smoking Adherence"), 
+       fill = "Mortality Rate", 
+       subtitle = "*WalkScore is missing from Rec. 7, \n resulting in variation from manuscript") +
+  theme(plot.title = element_text(hjust = 0.2, vjust = -2), 
+        legend.position.inside = c(0.9, 0.2), 
+        plot.subtitle = element_text(hjust = 0.0, vjust = -8.5), 
+        text = element_text(size = 10))
+
+# Map PS 
+worst_worst_PS_map <- ggplot() +
+  geom_sf(philly, mapping = aes(), 
+          color = "black", 
+          size = 1, 
+          fill = "#E8E8E8")+
+  geom_sf(nbhds, mapping = aes(), 
+          colour = "Black", 
+          fill = "lightgray")+
+  geom_sf(worst_worst_PS, 
+          mapping = aes(), 
+          colour = "Black", 
+          fill = "#3B2D5B")+
+  annotation_north_arrow(which_north = "grid", 
+                         height = unit(0.5, "cm"), 
+                         width = unit(0.5, "cm"), 
+                         pad_x = unit(0.25, "cm"),
+                         pad_y = unit(0.25, "cm"), 
+                         style = north_arrow_orienteering(fill = c("white", "black"), 
+                                                          text_size = 6), 
+                         location = "bl") +
+  theme_void() +
+  geom_sf_text(worst_worst_PS, 
+               mapping = aes(label = initial), 
+               size=3.5, color = "white", 
+               fun.geometry = sf::st_centroid) +
+  labs(title = paste0("b. High Cancer Mortality & Low \n Preventive Services Adherence"), 
+       fill = "Mortality Rate",
+       subtitle = "                                     ") +
+  theme(plot.title = element_text(hjust = 0.2, vjust = -2), 
+        legend.position.inside = c(0.9, 0.2), 
+        plot.subtitle = element_text(hjust = 0.2, vjust = -8.5), 
+        text = element_text(size = 10))
+ 
+# Display them side by side 
+MortalityMaps <- ggarrange(plotlist = list(worst_worst_ACS_map, worst_worst_PS_map), 
+                           common.legend = TRUE, 
+                           legend = "bottom", 
+                           ncol = 2, nrow = 1,
+                           widths = c(15, 15)) 
+MortalityMaps
+
+```
+
+## Step 3: Identify which recommendations are worse in the neighborhoods with high mortality and low adherence
+This doesn't match the manuscript because this public version is missing WalkScore, but the code below corresponds with Tables 3 and 4. 
+
+```{r recommendations in worse worse neighrohoods}
+worse_worse_ACS_recs <- step2_rec_betterworse%>%
+  filter(nbhd_name%in%unique(worst_worst_ACS$nbhd_nm))%>%
+  select(nbhd_name, rec_num, better_worse_rec)%>%
+  pivot_wider(names_from = nbhd_name, 
+              id_cols = rec_num, 
+              values_from = better_worse_rec)%>%
+  filter(rec_num%in%c("1", "2","3","4", "5", "6", "7"))%>%
+  left_join(data_dictionary%>%
+              select(rec_num, recommendation)%>%
+              distinct()
+            )%>% # bring the recommendation description in
+  relocate(recommendation)
+
+autofit(flextable(worse_worse_ACS_recs)%>%
+  delete_columns(2)) # hide rec_num from display
+
+worse_worse_PS_recs <- step2_rec_betterworse%>%
+  filter(nbhd_name%in%unique(worst_worst_PS$nbhd_nm))%>%
+  select(nbhd_name, rec_num, better_worse_rec)%>%
+  pivot_wider(names_from = nbhd_name, 
+              id_cols = rec_num, 
+              values_from = better_worse_rec)%>%
+  filter(rec_num%in%c("x.1", "x.2", "x.3"))%>%
+  left_join(data_dictionary%>%
+              select(rec_num, recommendation)%>%
+              distinct()
+            )%>% # bring the recommendation description in
+  relocate(recommendation)
+
+autofit(flextable(worse_worse_PS_recs)%>%
+  delete_columns(2)) # hide rec_num from display
+
+```
+
+# Supplemental Maps
+
+```{r make individual measure maps}
+# Get labels ready to use as map titles 
+labels <- c("Obesity", "Sweetened Beverages", "Non-sedentary & Active", 
+            "Fruits & Vegetable", "Binge Drinking", "Current Smoking", 
+            "Supermarket access", "Vehicle access", "Violent Crime Rate", "Safe Park", 
+            "WalkScore", "Population:Physician ratio", "Good Overall Health", 
+            "Colorectal Cancer Screen", "Breast Cancer Screen", "Cervical Cancer Screen",
+            "Cancer Mortality")
+
+# Prep spatial data set with better/worse indicators for all measures and mortality
+nbhd_bw_measures <- nbhds%>%
+  left_join(step1%>%pivot_wider(id_cols = c(nbhd_id, nbhd_name), names_from = measure, 
+                          values_from = better_worse, names_prefix = "bw_"))%>%
+  mutate(bw_cancer_mortality = case_when(cancer_mortality_comparison == "No Different"~"0",
+                                                 cancer_mortality_comparison == "Better"~"1",
+                                                 cancer_mortality_comparison == "Worse"~"-1"))
+
+# Make a function for making maps
+make_risk_map <- function(variable, label){
+  ggplot() +
+  geom_sf(philly, 
+          mapping = aes(), 
+          color = "black", 
+          size = 1, 
+          fill = "#E8E8E8")+
+  geom_sf(nbhd_bw_measures, 
+          mapping = aes(fill = as.character(variable)), 
+          colour = "Black")+
+  labs(fill = "Value") +
+  scale_fill_manual(breaks = c("0", "1", "-1"),
+                    values=c("white", "#36A4AB", "#3B2D5B"),
+                    labels = c("No different", "Better", "Worse"))+
+  theme_void() +
+  labs(title = paste0(label), 
+       fill = "Compared to City") +
+  theme(text = element_text(size = 10))
+}
+
+# Apply the function to all measures and mortality, calling the lables established above 
+obese_map <- make_risk_map(nbhd_bw_measures$bw_obese, labels[1])
+soda_juice_1d_map <- make_risk_map(nbhd_bw_measures$bw_soda_juice_1d, labels[2])
+nonsedent_map <- make_risk_map(nbhd_bw_measures$bw_nonsedent, labels[3])
+fruit5_map <- make_risk_map(nbhd_bw_measures$bw_fruit5, labels[4])
+binge_map <- make_risk_map(nbhd_bw_measures$bw_binge, labels[5])
+smoker_map <- make_risk_map(nbhd_bw_measures$bw_smoker, labels[6])
+food_halfmile_map <- make_risk_map(nbhd_bw_measures$bw_food_halfmile, labels[7])
+HH_vehicle_map <- make_risk_map(nbhd_bw_measures$bw_HH_vehicle, labels[8])
+crime_per_100k_map <- make_risk_map(nbhd_bw_measures$bw_crime_per_100k, labels[9])
+havepark_map <- make_risk_map(nbhd_bw_measures$bw_havepark, labels[10])
+# walkscore_map <- make_risk_map(nbhd_bw_measures$bw_walkscore, labels[11]) # Not available
+poppcp_ratio_map <- make_risk_map(nbhd_bw_measures$bw_poppcp_ratio, labels[12])
+healthgood_map <- make_risk_map(nbhd_bw_measures$bw_healthgood, labels[13])
+colsig10y_map <- make_risk_map(nbhd_bw_measures$bw_colsig10y, labels[14])
+mam2y_map <- make_risk_map(nbhd_bw_measures$bw_mam2y, labels[15])
+pap3y_map <- make_risk_map(nbhd_bw_measures$bw_pap3y, labels[16])
+mort <- make_risk_map(nbhd_bw_measures$bw_cancer_mortality, labels[17])
+
+# Display maps together 
+RiskMaps <- ggarrange(plotlist = list(obese_map, soda_juice_1d_map, nonsedent_map,
+                                      fruit5_map, binge_map, smoker_map, food_halfmile_map,
+                                      HH_vehicle_map, crime_per_100k_map, havepark_map,
+                                      #walkscore_map, # missing from data availablity
+                                      poppcp_ratio_map, healthgood_map,
+                                      colsig10y_map, mam2y_map, pap3y_map, mort), 
+                      common.legend = TRUE, 
+                      legend = "bottom", 
+                      ncol = 3, nrow = 6) 
+
+RiskMaps
+
+```

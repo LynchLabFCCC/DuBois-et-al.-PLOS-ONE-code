@@ -1,0 +1,21 @@
+measure,description,index,rec_num,recommendation,reverse
+nbhd_id,Neighborhood ID,NA,,NA,
+nbhd_name,Neighborhood Name,NA,,NA,
+obese,The percent of residents with a BMI greater than or equal to 30 kg/m2,"ACS Physical Activity, Nutrition, and Smoking Guidelines",1,#1- Achieve and Maintain a Healthy Weight Throughout Life,-1
+nonsedent,The percent of Philadelphians exercising 30 minutes at least 3 times/week AND meeting the non-sedentary guidelines,"ACS Physical Activity, Nutrition, and Smoking Guidelines",2,#2- Be Physically Active,1
+soda_juice_1d,The percent of Philadelphians who drank 1 or more sugar-sweetened beverages per day,"ACS Physical Activity, Nutrition, and Smoking Guidelines",3,"#3- Eat a Healthy Diet, with an Emphasis on Plant Foods",-1
+fruit5,Percent of Philadelphians consuming 5+servings of fruit/veggies daily,"ACS Physical Activity, Nutrition, and Smoking Guidelines",3,"#3- Eat a Healthy Diet, with an Emphasis on Plant Foods",1
+binge,Percent of Philadelphians who are binge drinking (4+ drinks for women or 5+ drinks for men in two hours) in last 30 days,"ACS Physical Activity, Nutrition, and Smoking Guidelines",4,#4- Limit Intake of Alcohol,-1
+smoker,Percent of Philadelphians that are current smokers,"ACS Physical Activity, Nutrition, and Smoking Guidelines",5,#5- Stay Away from Tobacco,-1
+food_halfmile,The percent of Philadelphians who are further than 1/2 mile from the closest supermarket,"ACS Physical Activity, Nutrition, and Smoking Guidelines",6,"#6- Increase access to affordable, nutritious foods",-1
+HH_vehicle,Percent of households which own at least one vehicle,"ACS Physical Activity, Nutrition, and Smoking Guidelines",7,"#7- Provide safe, enjoyable, and accessible environments for physical activity in schools and workplaces, and for transportation and recreation in communities",1
+crime_per_100k,"The number of violent crimes (murder/homicide, aggravated assault, robbery, and rape) divided by the Philadelphia Population and transformed to a rate per 100,000 people","ACS Physical Activity, Nutrition, and Smoking Guidelines",7,"#7- Provide safe, enjoyable, and accessible environments for physical activity in schools and workplaces, and for transportation and recreation in communities",-1
+havepark,"The percent of Philadelphians who responded ""yes"" to having a park in their neighborhood that they felt comfortable visiting","ACS Physical Activity, Nutrition, and Smoking Guidelines",7,"#7- Provide safe, enjoyable, and accessible environments for physical activity in schools and workplaces, and for transportation and recreation in communities",1
+healthgood,The percent of Philadelphians who self-reported a health status of good or higher,Healthy People Prevention Services Guidelines,x.1,Health-specific #1: Increase the proportion of adults who self-report good or better health,1
+poppcp_ratio,Population per primary care provider (ie: number of persons per provider),Healthy People Prevention Services Guidelines,x.2,Health-Specific #2: Provide population-based primary prevention services,-1
+colsig10y,The percent recommended based on age who received a colonoscopy within the past 10 years,Healthy People Prevention Services Guidelines,x.3,Health-specific #3: Screening,1
+mam2y,The percent recommended based on age/sex who received a mammogram within the past 2 years,Healthy People Prevention Services Guidelines,x.3,Health-specific #3: Screening,1
+pap3y,The percent  recommended based on age/sex who received a pap smear test within the past 3 years,Healthy People Prevention Services Guidelines,x.3,Health-specific #3: Screening,1
+cancer_mortality_comparison,"Comparison of neighborhood cancer mortality to overall Philadelphia cancer mortality based on neighborhood confidence intervals being entire above city estimate (""worse"") or below the city estimate (""better"") ",NA,,NA,
+cancer_mortality_rate,"The total number of cancer deaths per 100,000 residents",NA,,NA,
+walkscore (not sharable),"The average walk score (out of 100) based on intersection density, residential density, and accessibility of amenities such as grocery stores, parks, and restaurants","ACS Physical Activity, Nutrition, and Smoking Guidelines",7,"#7- Provide safe, enjoyable, and accessible environments for physical activity in schools and workplaces, and for transportation and recreation in communities",1

@@ -1,2 +1,2 @@
 # DuBois et al. PLOS ONE code
- This code was used to generate and visualize adherence scores in the PLOS ONE manuscript, "Data-driven insights into neighborhood adherence to  cancer prevention guidelines in Philadelphia"
+This code is an example of how adherence scores were calculated and visualized in the PLOS ONE manuscript,  “Data-driven insights into neighborhood adherence to cancer prevention guidelines in Philadelphia.” Please note that WalkScore cannot be redistributed by the authors due to the data agreement, so results from this code will differ slightly from those reported in the published manuscript.
